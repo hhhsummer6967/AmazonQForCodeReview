@@ -1,0 +1,60 @@
+stages:
+  - build
+  - review
+login_ecr:
+  stage: build
+  script:
+    - aws ecr get-login-password --region ${Region} | docker login --username AWS --password-stdin ${Accountid}.dkr.ecr.${Region}.amazonaws.com
+
+variables:
+  # 定义 Amazon Q 提示
+  PROMPT: |
+    你是一个代码审核助手，以下文件中包含代码审核规则
+    improve_rules/improved_code_review_standards_part1.md - 包含一般原则、代码审查流程和检查清单的第一部分（代码风格和代码质量）
+    improve_rules/improved_code_review_standards_part2.md - 包含功能实现、安全性和性能部分
+    improve_rules/improved_code_review_standards_part3.md - 包含测试、日志记录、可维护性和特定场景，如并发、事务、幂等性和远程调用
+    improve_rules/improved_code_review_standards_part4.md - 包含语言特定的检查点、中间件使用指南、通信指南、工具推荐和持续改进
+    请审核changes.txt中的修改，但不要直接修改文件，以中文输出，并参考improve_rules/llm_code_review_feedback_format.md中的推荐格式进行输出至文件amazon_q_review.md中。完成后，请检查amazon_q_review.md确保所需内容完整。审核完成后运行python脚本put_comment.py将审核结果添加到merge comment中，运行完成后回复完成，不需要对任务做总结，运行过程中不要修改任何文件。然后退出运行q cli
+amazon-q-code-review:
+  stage: review
+  variables:
+    GIT_STRATEGY: clone  # 使用clone确保获取完整仓库
+  # 使用您已配置的 Runner 标签
+  tags:
+    - ubuntu
+    - docker
+    - amazon-q
+  # GitLab CI/CD 配置文件
+# 使用预配置的 GitLab Runner 运行 Amazon Q 代码审查
+  image:${Image}
+  script:
+    - echo "CI_MERGE_REQUEST_IID $CI_MERGE_REQUEST_IID"
+    - echo "CI_MERGE_REQUEST_TARGET_BRANCH_NAME  $CI_MERGE_REQUEST_TARGET_BRANCH_NAME"
+    - echo "CI_MERGE_REQUEST_SOURCE_BRANCH_NAME $CI_MERGE_REQUEST_SOURCE_BRANCH_NAME"
+    - echo "CI_COMMIT_BEFORE_SHA  $CI_COMMIT_BEFORE_SHA"
+    - echo "CI_COMMIT_SHA  $CI_COMMIT_SHA"
+    - echo "AMAZON_Q_S3_URI $AMAZON_Q_S3_URI"
+    - echo "REGISTRATION_TOKEN $REGISTRATION_TOKEN"
+    - git branch -a
+    - git fetch --all --prune
+    - touch changes.txt
+    - echo "Processing changes..."
+    - if [ -n "$CI_MERGE_REQUEST_IID" ]; then git diff --name-only $CI_MERGE_REQUEST_TARGET_BRANCH_NAME $CI_MERGE_REQUEST_SOURCE_BRANCH_NAME > changes.txt 2>/dev/null || git diff --name-only origin/$CI_MERGE_REQUEST_TARGET_BRANCH_NAME origin/$CI_MERGE_REQUEST_SOURCE_BRANCH_NAME > changes.txt 2>/dev/null || git diff --name-only HEAD~1 HEAD > changes.txt 2>/dev/null || echo "No changes detected" > changes.txt; fi
+    - if [ -z "$CI_MERGE_REQUEST_IID" ]; then git diff --name-only $CI_COMMIT_BEFORE_SHA $CI_COMMIT_SHA > changes.txt 2>/dev/null || git diff --name-only HEAD~1 HEAD > changes.txt 2>/dev/null || echo "No changes detected" > changes.txt; fi
+    - if [ -n "$AMAZON_Q_S3_URI" ]; then aws s3 sync $AMAZON_Q_S3_URI ~/.local/share/amazon-q; fi 
+    - ls -l ~/.local/share/amazon-q
+    - echo "/help" | q chat
+    - q chat -a -- "$PROMPT"
+    
+    - mv amazon_q_review.md amazon_q_review_$CI_PIPELINE_ID.md 
+  
+  # 定义何时运行此作业
+  rules:
+    - if: $CI_PIPELINE_SOURCE == "merge_request_event"
+      when: always
+    - when: never
+  
+  artifacts:
+    paths:
+      - amazon_q_review_$CI_PIPELINE_ID.md
+    expire_in: 1 month
