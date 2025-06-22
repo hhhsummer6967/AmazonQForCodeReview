@@ -7,7 +7,7 @@
 4. Amazon Q Developer CLI 分析代码变更并生成审核报告
 5. 审核结果作为评论添加到合并请求中
 
-![upload](static/process.png)
+![upload](./static/process.png)
 
 Gitlab中的项目仓库结构如下：
 ```
