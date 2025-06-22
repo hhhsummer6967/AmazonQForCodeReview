@@ -1,32 +1,119 @@
 stages:
-  - build
+  - debug
   - review
-login_ecr:
-  stage: build
-  script:
-    - aws ecr get-login-password --region ${Region} | docker login --username AWS --password-stdin ${Accountid}.dkr.ecr.${Region}.amazonaws.com
 
 variables:
-  # 定义 Amazon Q 提示
-  PROMPT: |
-    你是一个代码审核助手，以下文件中包含代码审核规则
-    improve_rules/improved_code_review_standards_part1.md - 包含一般原则、代码审查流程和检查清单的第一部分（代码风格和代码质量）
-    improve_rules/improved_code_review_standards_part2.md - 包含功能实现、安全性和性能部分
-    improve_rules/improved_code_review_standards_part3.md - 包含测试、日志记录、可维护性和特定场景，如并发、事务、幂等性和远程调用
-    improve_rules/improved_code_review_standards_part4.md - 包含语言特定的检查点、中间件使用指南、通信指南、工具推荐和持续改进
-    请审核changes.txt中的修改，但不要直接修改文件，以中文输出，并参考improve_rules/llm_code_review_feedback_format.md中的推荐格式进行输出至文件amazon_q_review.md中。完成后，请检查amazon_q_review.md确保所需内容完整。审核完成后运行python脚本put_comment.py将审核结果添加到merge comment中，运行完成后回复完成，不需要对任务做总结，运行过程中不要修改任何文件。然后退出运行q cli
-amazon-q-code-review:
-  stage: review
+  # Git 调试变量
+  #GIT_TRACE: "true"
+  #GIT_CURL_VERBOSE: "true"
+  #GIT_TRACE_PACKET: "true"
+  #GIT_TRACE_PERFORMANCE: "true"
+  #GIT_TRACE_SETUP: "true"
+  
+  # 定义 Amazon Q 提示 - 用于 Merge Request 审核（只审核变更文件）
+  MR_PROMPT: |
+    你是一位专业的代码审核助手，负责根据预定义的代码审核规则对提交的代码变更进行全面审核。
+
+    ## 审核规则文件
+    以下文件包含你需要遵循的详细代码审核规则：
+
+    1. improve_rules/improved_code_review_standards_part1.md - 包含一般原则、代码审查流程和检查清单的第一部分（代码风格和代码质量）
+    2. improve_rules/improved_code_review_standards_part2.md - 包含功能实现、安全性和性能部分
+    3. improve_rules/improved_code_review_standards_part3.md - 包含测试、日志记录、可维护性和特定场景，如并发、事务、幂等性和远程调用
+    4. improve_rules/improved_code_review_standards_part4.md - 包含语言特定的检查点、中间件使用指南、通信指南、工具推荐和持续改进
+
+    ## 审核流程
+    1. 首先，请仔细阅读并理解上述所有规则文件中的内容
+    2. 然后，审核 changes.txt 内列出的本次变更的代码文件
+    3. 根据 improve_rules/llm_code_review_feedback_format.md 中定义的格式，生成审核反馈
+    4. 将审核结果以中文输出到 amazon_q_review.md 文件中
+
+    ## 输出要求
+    • 审核反馈必须使用中文
+    • 严格遵循 llm_code_review_feedback_format.md 中的格式要求
+    • 提供具体、有建设性的反馈，包括问题描述和改进建议
+    • 对代码的优点也要给予肯定
+    • **只报告紧急程度为【阻塞】、【重要】和【一般】的问题，不要提供紧急程度为"建议"的问题**
+    • 根据问题的严重程度进行分类：
+      • 【阻塞】：必须修复才能合并的严重问题
+      • 【重要】：应当修复但不阻止合并的问题
+      • 【一般】：可以考虑修复的问题
+
+    ## 完成后操作
+    1. 检查 amazon_q_review.md 文件，确保内容完整且符合格式要求
+    2. 完成后简单回复"完成"，无需对任务做总结
+
+    请注意：整个过程中不要修改任何原始文件，只生成审核结果文件。
+    
+  # 定义 Amazon Q 提示 - 用于手动触发审核（审核整个仓库）
+  FULL_PROMPT: |
+    你是一位专业的代码审核专家，需要对一个大型代码仓库进行全面审核。请严格按照以下指导进行工作：
+
+    ## 审核规则来源
+    请仔细阅读并完全理解以下文件中的代码审核规则：
+    1. improve_rules/improved_code_review_standards_part1.md - 一般原则、代码审查流程和代码风格/质量检查清单
+    2. improve_rules/improved_code_review_standards_part2.md - 功能实现、安全性和性能最佳实践
+    3. improve_rules/improved_code_review_standards_part3.md - 测试、日志记录、可维护性和特定场景(并发、事务、幂等性、远程调用)
+    4. improve_rules/improved_code_review_standards_part4.md - 语言特定检查点、中间件使用、通信指南和工具推荐
+
+    ## 审核方法
+    1. 首先，扫描整个代码仓库结构，了解项目架构和组件关系
+    2. 按照 improve_rules/AmazonQ_largeCode_review_rule.md 中的原则进行系统性审核
+    3. 重点关注：
+      - 代码质量和一致性问题
+      - 潜在的安全漏洞
+      - 性能优化机会
+      - 可维护性和可扩展性
+      - 特定场景的最佳实践实现
+
+    ## 输出要求
+    1. 将审核结果以**中文**输出到 amazon_q_review.md 文件
+    2. 严格遵循 improve_rules/llm_code_review_feedback_format.md 中定义的格式
+    3. 审核报告应包含：
+      - 总体评估和主要发现
+      - 按严重程度分类的问题清单,报告只需展示紧急程度为【阻塞/重要/一般】的问题，不要提供紧急程度为**建议**的问题
+      - 每个问题的具体位置、详细描述和改进建议
+      - 代码优化示例（如适用）
+      - 总结性建议
+
+    ## 重要注意事项
+    1. **不要修改任何原始代码**，只提供审核意见
+    2. 确保覆盖所有关键组件和核心功能
+    3. 审核完成后，检查 amazon_q_review.md 确保内容完整且格式正确
+    4. 不需要对任务本身做总结，专注于代码审核结果
+    5. 如发现特别严重的问题，请在报告开头特别标注
+
+    请开始代码审核工作，并确保审核质量符合专业标准，运行完成后不要输出工作总结。
+# 专门的调试作业，如遇错误可以打开
+debug-git-access:
+  stage: debug
   variables:
-    GIT_STRATEGY: clone  # 使用clone确保获取完整仓库
-  # 使用您已配置的 Runner 标签
+    GIT_STRATEGY: none
   tags:
     - ubuntu
     - docker
     - amazon-q
-  # GitLab CI/CD 配置文件
-# 使用预配置的 GitLab Runner 运行 Amazon Q 代码审查
-  image:${Image}
+  image: alpine:latest
+  script: 
+    - echo "===== Git 调试信息 ====="
+    - echo "CI_JOB_TOKEN available $([[ -n ${CI_JOB_TOKEN} ]] && echo 'Yes' || echo 'No')"
+    - echo "CI_SERVER_HOST ${CI_SERVER_HOST}"
+    - echo "CI_PROJECT_PATH ${CI_PROJECT_PATH}"
+    - echo "CI_REPOSITORY_URL  ${CI_REPOSITORY_URL}"
+  rules:
+    - if: $CI_PIPELINE_SOURCE == "web"
+      when: always
+    - when: never
+
+amazon-q-code-review:
+  stage: review
+  variables:
+    GIT_STRATEGY: clone 
+  tags:
+    - ubuntu
+    - docker
+    - amazon-q
+  image: ${Image}
   script:
     - echo "CI_MERGE_REQUEST_IID $CI_MERGE_REQUEST_IID"
     - echo "CI_MERGE_REQUEST_TARGET_BRANCH_NAME  $CI_MERGE_REQUEST_TARGET_BRANCH_NAME"
@@ -35,26 +122,82 @@ amazon-q-code-review:
     - echo "CI_COMMIT_SHA  $CI_COMMIT_SHA"
     - echo "AMAZON_Q_S3_URI $AMAZON_Q_S3_URI"
     - echo "REGISTRATION_TOKEN $REGISTRATION_TOKEN"
+    - echo "CI_SERVER_URL ${CI_SERVER_URL}"
+    - echo "CI_PROJECT_ID ${CI_PROJECT_ID}"
+    - echo "CI_MERGE_REQUEST_IID ${CI_MERGE_REQUEST_IID}"
+    - echo "CI_PIPELINE_ID ${CI_PIPELINE_ID}"
     - git branch -a
     - git fetch --all --prune
     - touch changes.txt
     - echo "Processing changes..."
+    - echo "Amazon Q version is `q --version`"
     - if [ -n "$CI_MERGE_REQUEST_IID" ]; then git diff --name-only $CI_MERGE_REQUEST_TARGET_BRANCH_NAME $CI_MERGE_REQUEST_SOURCE_BRANCH_NAME > changes.txt 2>/dev/null || git diff --name-only origin/$CI_MERGE_REQUEST_TARGET_BRANCH_NAME origin/$CI_MERGE_REQUEST_SOURCE_BRANCH_NAME > changes.txt 2>/dev/null || git diff --name-only HEAD~1 HEAD > changes.txt 2>/dev/null || echo "No changes detected" > changes.txt; fi
     - if [ -z "$CI_MERGE_REQUEST_IID" ]; then git diff --name-only $CI_COMMIT_BEFORE_SHA $CI_COMMIT_SHA > changes.txt 2>/dev/null || git diff --name-only HEAD~1 HEAD > changes.txt 2>/dev/null || echo "No changes detected" > changes.txt; fi
     - if [ -n "$AMAZON_Q_S3_URI" ]; then aws s3 sync $AMAZON_Q_S3_URI ~/.local/share/amazon-q; fi 
     - ls -l ~/.local/share/amazon-q
     - echo "/help" | q chat
-    - q chat -a -- "$PROMPT"
-    
-    - mv amazon_q_review.md amazon_q_review_$CI_PIPELINE_ID.md 
-  
-  # 定义何时运行此作业
+    - q chat -a -- "$MR_PROMPT"    
+    - cp amazon_q_review.md amazon_q_review_$CI_PIPELINE_ID.md 
+    # 确保环境变量可用于 put_comment.py
+    - echo "Running full repository review..."
+    - echo "CI_COMMIT_SHA  $CI_COMMIT_SHA"
+    - echo "AMAZON_Q_S3_URI $AMAZON_Q_S3_URI"
+    - echo "REGISTRATION_TOKEN $REGISTRATION_TOKEN"
+    - echo "CI_SERVER_URL ${CI_SERVER_URL}"
+    - echo "CI_PROJECT_ID ${CI_PROJECT_ID}"
+    - echo "CI_MERGE_REQUEST_IID ${CI_MERGE_REQUEST_IID}"
+    - echo "CI_PIPELINE_ID ${CI_PIPELINE_ID}"
+    - python3 put_comment.py
   rules:
     - if: $CI_PIPELINE_SOURCE == "merge_request_event"
       when: always
     - when: never
-  
   artifacts:
     paths:
       - amazon_q_review_$CI_PIPELINE_ID.md
+    expire_in: 1 month
+
+amazon-q-full-review:
+  stage: review
+  variables:
+    GIT_STRATEGY: clone  
+  tags:
+    - ubuntu
+    - docker
+    - amazon-q
+  image: ${Image}
+  script:
+    - echo "Running full repository review..."
+    - echo "CI_COMMIT_SHA  $CI_COMMIT_SHA"
+    - echo "AMAZON_Q_S3_URI $AMAZON_Q_S3_URI"
+    - echo "REGISTRATION_TOKEN $REGISTRATION_TOKEN"
+    - echo "CI_SERVER_URL ${CI_SERVER_URL}"
+    - echo "CI_PROJECT_ID ${CI_PROJECT_ID}"
+    - echo "CI_MERGE_REQUEST_IID ${CI_MERGE_REQUEST_IID}"
+    - echo "CI_PIPELINE_ID ${CI_PIPELINE_ID}"
+    - git branch -a
+    - git fetch --all --prune
+    - if [ -n "$AMAZON_Q_S3_URI" ]; then aws s3 sync $AMAZON_Q_S3_URI ~/.local/share/amazon-q; fi 
+    - ls -l ~/.local/share/amazon-q
+    - echo "/help" | q chat
+    - q --version
+    - q chat -a -- "$FULL_PROMPT"    
+    - cp amazon_q_review.md amazon_q_full_review_$CI_PIPELINE_ID.md 
+    # 确保环境变量可用于 put_comment.py
+    - echo "Running full repository review..."
+    - echo "CI_COMMIT_SHA  $CI_COMMIT_SHA"
+    - echo "AMAZON_Q_S3_URI $AMAZON_Q_S3_URI"
+    - echo "REGISTRATION_TOKEN $REGISTRATION_TOKEN"
+    - echo "CI_SERVER_URL ${CI_SERVER_URL}"
+    - echo "CI_PROJECT_ID ${CI_PROJECT_ID}"
+    - echo "CI_MERGE_REQUEST_IID ${CI_MERGE_REQUEST_IID}"
+    - echo "CI_PIPELINE_ID ${CI_PIPELINE_ID}"
+    - python3 put_comment.py
+  rules:
+    - if: $CI_PIPELINE_SOURCE == "web"
+      when: always
+    - when: never
+  artifacts:
+    paths:
+      - amazon_q_full_review_$CI_PIPELINE_ID.md
     expire_in: 1 month

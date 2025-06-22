@@ -30,7 +30,8 @@ RUN apt-get update && \
     rm -rf /var/lib/apt/lists/*
 
 # 安装AWS CLI
-RUN pip3 install --no-cache-dir awscli requests && pip install requests
+RUN pip3 install --no-cache-dir awscli requests && pip3 install aiohttp requests asyncio pathlib
+
 
 # 安装Amazon Q CLI
 RUN curl --proto '=https' --tlsv1.2 -sSf https://desktop-release.q.us-east-1.amazonaws.com/latest/amazon-q.deb -o amazon-q.deb && \
