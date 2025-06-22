@@ -46,8 +46,9 @@ Gitlab中的项目仓库结构如下：
           {
             "credHelpers": {
               "public.ecr.aws": "ecr-login",
-              "${AWS::AccountId}.dkr.ecr.${AWS::Region}.amazonaws.com": "ecr-login"
+              "${AWS::AccountId}.dkr.ecr.${AWS::Region}.amazonaws.com": "ecr-login" #${AWS::AccountId} 与 ${AWS::Region}替换为自己的Account ID与 Region
             }
           }
           EOF
 ```
+q=
